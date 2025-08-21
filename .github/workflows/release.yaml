@@ -28,7 +28,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Build Slidev presentation
         run: pnpm exec slidev build --base /${{ github.event.repository.name }}/
