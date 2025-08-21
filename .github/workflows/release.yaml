@@ -1,113 +1,79 @@
-# 工作流程的名稱
-name: Deploy Slidev to GitHub Pages and Release PDF
+name: Release -> Export PDF & Deploy Pages
 
-# 觸發條件：當一個新的 Release 被 "published" 時
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
-# 工作流程中的任務
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
-  # --- Job 1: 建置網站和 PDF ---
-  build:
-    name: Build Artifacts
+  build-and-export:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 8
-
-      - name: Set up Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'pnpm'
+          node-version: 'lts/*'
 
       - name: Install dependencies
-        run: pnpm install
+        run: npm ci
 
-      - name: Build Slidev presentation
-        run: pnpm exec slidev build --base /${{ github.event.repository.name }}/
+      - name: Install Slidev CLI
+        run: npm i -g @slidev/cli
 
-      - name: Export presentation to PDF
-        run: pnpm exec slidev export --output presentation.pdf
+      - name: Install Playwright Chromium (for PDF export)
+        run: npx playwright install --with-deps chromium
 
-      # 將建置好的 dist 目錄上傳為產出物，供後續的 job 使用
-      - name: Upload dist artifact
-        uses: actions/upload-artifact@v4
+      - name: Build Slidev site (with base path for GitHub Pages)
+        run: slidev build --base /${{ github.event.repository.name }}/
+        # 依你的專案位置調整 working-directory:
+        # working-directory: ./slides
+
+      - name: SPA fallback (optional)
+        run: cp dist/index.html dist/404.html
+        # 可避免直接進入子路由後刷新導致 404
+
+      - name: Export PDF
+        run: slidev export --output slides.pdf
+        # 若你的專案位於子資料夾，記得設定 working-directory
+
+      - name: Attach PDF to this Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: slidev-dist
-          path: ./dist
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./slides.pdf
+          asset_name: ${{ github.event.repository.name }}-${{ github.event.release.tag_name }}.pdf
+          asset_content_type: application/pdf
 
-      # 將匯出的 PDF 檔案上傳為產出物
-      - name: Upload PDF artifact
-        uses: actions/upload-artifact@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: slidev-pdf
-          path: ./presentation.pdf
+          path: dist
 
-  # --- Job 2: 部署到 GitHub Pages ---
-  deploy-pages:
-    name: Deploy to GitHub Pages
+  deploy:
+    needs: build-and-export
     runs-on: ubuntu-latest
-    # 這個 job 需要等待 'build' job 成功完成
-    needs: build
-    # 為 GitHub Pages 部署設定權限
-    permissions:
-      pages: write
-      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      # 下載 'build' job 中上傳的網站產出物
-      - name: Download dist artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: slidev-dist
-          path: ./dist
-
-      # 準備上傳到 GitHub Pages
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      
-      # 將網站內容打包成 GitHub Pages 能接受的格式
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './dist'
-      
-      # 執行部署
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-  # --- Job 3: 上傳 PDF 到 Release ---
-  upload-pdf:
-    name: Upload PDF to Release
-    runs-on: ubuntu-latest
-    # 這個 job 也需要等待 'build' job 成功完成
-    needs: build
-    # 只需要寫入內容的權限以上傳附件
-    permissions:
-      contents: write
-    steps:
-      # 下載 'build' job 中上傳的 PDF 產出物
-      - name: Download PDF artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: slidev-pdf
-
-      - name: Upload PDF to release
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./presentation.pdf
-          asset_name: ${{ github.event.repository.name }}-${{ github.event.release.tag_name }}.pdf
-          asset_content_type: application/pdf
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
