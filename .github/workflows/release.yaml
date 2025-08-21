@@ -17,7 +17,6 @@ concurrency:
 jobs:
   build-and-export:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,26 +29,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Slidev CLI
-        run: npm i -g @slidev/cli
-
-      - name: Install Playwright Chromium (for PDF export)
+      # 安裝 Playwright 瀏覽器與系統相依套件（僅 Chromium）
+      - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Build Slidev site (with base path for GitHub Pages)
-        run: slidev build --base /${{ github.event.repository.name }}/
-        # 依你的專案位置調整 working-directory:
-        # working-directory: ./slides
+      # 建置網站（如部署到子路徑，記得設 base 為倉庫名）
+      - name: Build Slidev site
+        run: npx slidev build --base /${{ github.event.repository.name }}/
 
+      # 可選：避免深連結重新整理 404
       - name: SPA fallback (optional)
         run: cp dist/index.html dist/404.html
-        # 可避免直接進入子路由後刷新導致 404
 
+      # 匯出 PDF
       - name: Export PDF
-        run: slidev export --output slides.pdf
-        # 若你的專案位於子資料夾，記得設定 working-directory
+        run: npx slidev export --output slides.pdf
 
-      - name: Attach PDF to this Release
+      # 附加 PDF 到本次 Release
+      - name: Attach PDF to Release
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -59,9 +56,9 @@ jobs:
           asset_name: ${{ github.event.repository.name }}-${{ github.event.release.tag_name }}.pdf
           asset_content_type: application/pdf
 
+      # 以下維持 Pages 的部署流程（若你已設定，沿用即可）
       - name: Setup Pages
         uses: actions/configure-pages@v4
-
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
